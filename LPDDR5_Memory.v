@@ -1,60 +1,44 @@
 module LPDDR5_Memory(
-    input wire clk,               // Clock signal
-    input wire clk_en,            // Clock enable for low power mode
-    input wire rst_n,             // Active-low reset
-    input wire [ADDR_WIDTH-1:0] addr,  // Address bus
-    input wire [DATA_WIDTH-1:0] wr_data, // Write data bus
-    input wire rd_en,             // Read enable
-    input wire wr_en,             // Write enable
-    output reg [DATA_WIDTH-1:0] rd_data  // Read data bus
+    input wire clk,                     // Clock signal
+    input wire rst_n,                   // Active-low reset
+    input wire [15:0] addr,             // Address bus (16-bit width for 64K addresses)
+    input wire [63:0] wr_data,          // Write data bus (64-bit data width)
+    input wire rd_en,                   // Read enable
+    input wire wr_en,                   // Write enable
+    output reg [63:0] rd_data           // Read data bus
 );
-    parameter ADDR_WIDTH = 16;  // Example address width
-    parameter DATA_WIDTH = 64;   // Example data width
-    // Memory depth (based on address width)
-    localparam MEM_DEPTH = 1 << ADDR_WIDTH;
 
-    // Memory array with ramstyle attribute
-    (* ramstyle = "block" *) reg [DATA_WIDTH-1:0] memory_array [0:MEM_DEPTH-1];
+    // Define memory array with 16-bit addressable depth and 64-bit data width
+    reg [63:0] memory_array [0:65535];
 
-    // Internal signals for DDR operation
-    reg [DATA_WIDTH/2-1:0] data_latch_1;
-    reg [DATA_WIDTH/2-1:0] data_latch_2;
+    // Internal latches for DDR write
+    reg [31:0] data_latch_1;   // Lower half latched on rising edge
+    reg [31:0] data_latch_2;   // Upper half latched on falling edge
 
-    // Power management: Clock gating for low power mode
-    wire clk_gated;
-    assign clk_gated = clk & clk_en;
-
-    // Double Data Rate Write Operation on Rising Edge
-    always @(posedge clk_gated or negedge rst_n) begin
+    // Double Data Rate Write on Rising Edge
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            // Reset logic
-            data_latch_1 <= 0;
+            data_latch_1 <= 32'h00000000;
         end else if (wr_en) begin
-            // First write (lower half) on rising edge
-            data_latch_1 <= wr_data[DATA_WIDTH/2-1:0];
+            data_latch_1 <= wr_data[31:0];
         end
     end
 
-    // Double Data Rate Write Operation on Falling Edge
-    always @(negedge clk_gated or negedge rst_n) begin
+    // Double Data Rate Write on Falling Edge
+    always @(negedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            // Reset logic
-            data_latch_2 <= 0;
+            data_latch_2 <= 32'h00000000;
         end else if (wr_en) begin
-            // Second write (upper half) on falling edge
-            data_latch_2 <= wr_data[DATA_WIDTH-1:DATA_WIDTH/2];
-            // Store to memory on the falling edge
-            memory_array[addr] <= {data_latch_2, data_latch_1};  // Combine both parts
+            data_latch_2 <= wr_data[63:32];
+            memory_array[addr] <= {data_latch_2, data_latch_1};
         end
     end
 
-    // Double Data Rate Read Operation on Rising Edge
-    always @(posedge clk_gated or negedge rst_n) begin
+    // Read Operation
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            // Reset logic
-            rd_data <= 0;
+            rd_data <= 64'h0000000000000000;
         end else if (rd_en) begin
-            // Read data from memory on the rising edge
             rd_data <= memory_array[addr];
         end
     end
